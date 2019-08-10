@@ -110,10 +110,10 @@ namespace Grouper2
                     () => GetDomainGpoData.DomainGpoData,
                     getSysvolDirs: s => Directory.GetDirectories(s),
                     getGpoDirs: s => Directory.GetDirectories(s),
-                    () => LDAPstuff.GetGpoPackages(Environment.UserDomainName.ToString()),
-                    PackageAssess.AssessPackage,
-                    ProcessGpo,
-                    ProcessScripts);
+                    getGpoPackages: () => LDAPstuff.GetGpoPackages(Environment.UserDomainName.ToString()),
+                    assessPackage: PackageAssess.AssessPackage,
+                    processGpo: ProcessGpo,
+                    processScripts: ProcessScripts);
 
             var grouper2OutputResult = grouperService.Run(executionContext);
 
