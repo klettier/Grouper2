@@ -104,6 +104,7 @@
     <Reference Include="mscorlib" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="CommandLineExecutionContextParser.cs" />
     <Compile Include="Utility\CurrentUserSecurity.cs" />
     <Compile Include="Utility\FileSystem.cs" />
     <Compile Include="Assess\GPPAssess\AssessGpp.cs" />
@@ -179,7 +180,12 @@
       <LastGenOutput>Resources.Designer.cs</LastGenOutput>
     </EmbeddedResource>
   </ItemGroup>
-  <ItemGroup />
+  <ItemGroup>
+    <ProjectReference Include="..\Grouper2.Core\Grouper2.Core.csproj">
+      <Project>{DC8A9A02-0391-4CF7-BCFC-B959346F61DF}</Project>
+      <Name>Grouper2.Core</Name>
+    </ProjectReference>
+  </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <ProjectExtensions>
     <MonoDevelop>

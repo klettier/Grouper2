@@ -14,6 +14,7 @@
 using Alba.CsConsoleFormat;
 using CommandLineParser.Arguments;
 using CommandLineParser.Exceptions;
+using Grouper2.Core;
 using Grouper2.Properties;
 using Grouper2.ScriptsIniAssess;
 using Grouper2.Utility;
@@ -26,6 +27,7 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using static Grouper2.Core.GrouperService;
 
 namespace Grouper2
 {
@@ -80,7 +82,126 @@ namespace Grouper2
 
     internal class Grouper2
     {
-        private static void Main(string[] args)
+        private static int Main(string[] args)
+        {
+            DateTime grouper2StartTime = DateTime.Now;
+
+            var parser = new CommandLineExecutionContextParser(Console.WriteLine, Console.Error.WriteLine);
+
+            var executionContext = parser.ParseToExecutionContext(args);
+
+            if (executionContext == null)
+            {
+                return 0;
+            }
+
+            if (executionContext is InvalidArgs)
+            {
+                return 1;
+            }
+
+            if (!executionContext.PrettyOutput) Output.PrintBanner();
+
+            var grouperService =
+                new GrouperService(
+                    Console.WriteLine,
+                    Console.Error.WriteLine,
+                    Utility.Output.DebugWrite,
+                    () => GetDomainGpoData.DomainGpoData,
+                    getSysvolDirs: s => Directory.GetDirectories(s),
+                    getGpoDirs: s => Directory.GetDirectories(s),
+                    () => LDAPstuff.GetGpoPackages(Environment.UserDomainName.ToString()),
+                    PackageAssess.AssessPackage,
+                    ProcessGpo,
+                    ProcessScripts);
+
+            var grouper2OutputResult = grouperService.Run(executionContext);
+
+            if (grouper2OutputResult is InvalidDomain)
+            {
+                return 1;
+            }
+
+            var grouper2Output = grouper2OutputResult as Grouper2Output;
+            Print(Console.Error.WriteLine, executionContext.PrettyOutput, executionContext.HtmlOut, grouper2Output.Value, executionContext.HtmlOutPath);
+
+            // get the time it took to do the thing and give to user
+            DateTime grouper2EndTime = DateTime.Now;
+            TimeSpan grouper2RunTime = grouper2EndTime.Subtract(grouper2StartTime);
+            string grouper2RunTimeString =
+                $"{grouper2RunTime.Hours}:{grouper2RunTime.Minutes}:{grouper2RunTime.Seconds}:{grouper2RunTime.Milliseconds}";
+
+            Console.WriteLine("Grouper2 took " + grouper2RunTimeString + " to run.");
+
+            return 0;
+        }
+
+        private static void Print(Action<string> logError, bool prettyOutput, bool htmlOut, JObject grouper2Output, string htmlOutPath)
+        {
+            // Final output is finally happening finally here:
+
+            if (prettyOutput || htmlOut)
+            {
+                // gotta add a line feed to make sure we're clear to write the nice output.
+                logError?.Invoke("\n");
+
+                if (htmlOut)
+                {
+                    try
+                    {
+                        // gotta add a line feed to make sure we're clear to write the nice output.
+
+                        Document htmlDoc = new Document();
+
+                        htmlDoc.Children.Add(Output.GetG2BannerDocument());
+
+                        foreach (KeyValuePair<string, JToken> gpo in grouper2Output)
+                        {
+                            htmlDoc.Children.Add(Output.GetAssessedGpoOutput(gpo));
+                        }
+                        ConsoleRenderer.RenderDocument(htmlDoc, new HtmlRenderTarget(File.Create(htmlOutPath), new UTF8Encoding(false)));
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                        logError?.Invoke("Tried to write html output file but I'm not allowed.");
+                    }
+                }
+
+                if (prettyOutput)
+                {
+                    Document prettyDoc = new Document();
+
+                    prettyDoc.Children.Add(Output.GetG2BannerDocument());
+
+                    foreach (KeyValuePair<string, JToken> gpo in grouper2Output)
+                    {
+                        prettyDoc.Children.Add(Output.GetAssessedGpoOutput(gpo));
+                    }
+                    ConsoleRenderer.RenderDocument(prettyDoc);
+                }
+            }
+            else
+            {
+                Console.WriteLine(grouper2Output);
+                logError?.Invoke("If you find yourself thinking 'wtf this is very ugly and hard to read', consider trying the -g argument.");
+            }
+
+            //if (GlobalVar.CleanupList != null)
+            //{
+            //    List<string> cleanupList = Util.DedupeList(GlobalVar.CleanupList);
+            //    if (cleanupList.Count >= 1)
+            //    {
+            //        Console.WriteLine("\n\nGrouper2 tried to create these files. It probably failed, but just in case it didn't, you might want to check and clean them up.\n");
+            //        foreach (string path in cleanupList)
+            //        {
+            //            Console.WriteLine(path);
+            //        }
+            //    }
+            //}
+
+        }
+
+        private static void MainOld(string[] args)
         {
             DateTime grouper2StartTime = DateTime.Now;
             CommandLineParser.CommandLineParser parser = new CommandLineParser.CommandLineParser();
@@ -582,8 +703,6 @@ namespace Grouper2
             else
             {
                 Console.WriteLine(grouper2Output);
-                File.WriteAllText(@"C:\Users\letti\Documents\code\github\Grouper2\Grouper2\TestSysvol\ReportOrig.json", grouper2Output.ToString());
-
                 Console.Error.WriteLine("If you find yourself thinking 'wtf this is very ugly and hard to read', consider trying the -g argument.");
             }
 
