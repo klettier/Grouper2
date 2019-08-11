@@ -233,10 +233,10 @@ namespace Grouper2.Core.Utility
             return "";
         }
 
-        public static JToken CheckSid(string sid, JObject jsonData)
+        public static JToken CheckSid(string sid, JArray wellKnownSids)
         {
             //JObject jsonData = JankyDb.Instance;
-            JArray wellKnownSids = (JArray)jsonData["trustees"];
+            //JArray wellKnownSids = (JArray)jsonData["trustees"];
 
             bool sidMatches = false;
             // iterate over the list of well known sids to see if any match.

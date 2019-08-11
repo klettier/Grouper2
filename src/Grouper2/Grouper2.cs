@@ -102,18 +102,54 @@ namespace Grouper2
 
             if (!executionContext.PrettyOutput) Output.PrintBanner();
 
+            JObject investigatePath(string s) => global::Grouper2.Core.Utility.FileSystem.InvestigatePath(
+                s,
+                executionContext.OnlineChecks,
+                Utility.Output.DebugWrite,
+                (JArray)JankyDb.Instance["interestingExtensions"],
+                ss => global::Grouper2.Core.Utility.FileSystem.GetFileDaclJObject(ss, executionContext.OnlineChecks, Utility.Output.DebugWrite, LDAPstuff.GetUserFromSid, executionContext.IntLevelToShow),
+                (JArray)JankyDb.Instance["interestingWords"]);
+
+            JObject parseSddlString(string rawSddl, Core.SddlParser.SecurableObjectType type) => Core.ParseSddl.ParseSddlString(
+                    rawSddl,
+                    Utility.Output.DebugWrite,
+                    sid => new Core.SddlParser.Sid(sid, executionContext.OnlineChecks,
+                    LDAPstuff.GetUserFromSid),
+                    acl => new Core.SddlParser.Acl(acl, ace => new Core.SddlParser.Ace(ace, Utility.Output.DebugWrite, sid => new Core.SddlParser.Sid(sid, executionContext.OnlineChecks, LDAPstuff.GetUserFromSid), type)),
+                    acl => acl.ToJObject(executionContext.IntLevelToShow, Utility.Output.DebugWrite, LDAPstuff.GetUserFromSid));
+
+            JObject assessGptmpl(JObject jobj) =>
+                    global::Grouper2.Core.AssessHandlers.AssessGptmpl(
+                        jobj,
+                        executionContext.DebugMode,
+                        executionContext.IntLevelToShow,
+                        jt => global::Grouper2.Core.InfAssess.AssessInf.AssessPrivRights(
+                            jt,
+                            executionContext.IntLevelToShow,
+                            executionContext.OnlineChecks,
+                            LDAPstuff.GetDomainSid,
+                            (JArray)JankyDb.Instance["privRights"],
+                            Utility.Output.DebugWrite,
+                            sid => LDAPstuff.GetUserFromSid(sid)),
+                        jt => global::Grouper2.Core.InfAssess.AssessInf.AssessRegValues(jt, (JArray)JankyDb.Instance["regKeys"], Utility.Output.DebugWrite, executionContext.IntLevelToShow),
+                        jt => global::Grouper2.Core.InfAssess.AssessInf.AssessGroupMembership(jt, executionContext.IntLevelToShow, (JArray)JankyDb.Instance["trustees"], executionContext.OnlineChecks, LDAPstuff.GetUserFromSid, Utility.Output.DebugWrite),
+                        jt => global::Grouper2.Core.InfAssess.AssessInf.AssessServiceGenSetting(jt, executionContext.IntLevelToShow, parseSddlString),
+                        parseSddlString);
+
             var grouperService =
                 new GrouperService(
                     Console.WriteLine,
                     Console.Error.WriteLine,
                     Utility.Output.DebugWrite,
-                    () => GetDomainGpoData.DomainGpoData,
                     getSysvolDirs: s => Directory.GetDirectories(s),
                     getGpoDirs: s => Directory.GetDirectories(s),
                     getGpoPackages: () => LDAPstuff.GetGpoPackages(Environment.UserDomainName.ToString()),
                     assessPackage: PackageAssess.AssessPackage,
                     processGpo: ProcessGpo,
-                    processScripts: ProcessScripts);
+                    processScripts: ProcessScripts,
+                    investigatePath : investigatePath,
+                    investigateString : s => global::Grouper2.Core.Utility.FileSystem.InvestigateString(s, (JArray)JankyDb.Instance["interestingWords"],executionContext.IntLevelToShow, investigatePath),
+                    assessGptmpl : assessGptmpl);
 
             var grouper2OutputResult = grouperService.Run(executionContext);
 

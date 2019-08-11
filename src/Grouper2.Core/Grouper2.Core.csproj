@@ -47,8 +47,33 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Assess\AssessHandlers.cs" />
+    <Compile Include="Assess\GPPAssess\AssessDataSources.cs" />
+    <Compile Include="Assess\GPPAssess\AssessDrives.cs" />
+    <Compile Include="Assess\GPPAssess\AssessEnvVars.cs" />
+    <Compile Include="Assess\GPPAssess\AssessFiles.cs" />
+    <Compile Include="Assess\GPPAssess\AssessGpp.cs" />
+    <Compile Include="Assess\GPPAssess\AssessIniFiles.cs" />
+    <Compile Include="Assess\GPPAssess\AssessNetworkOptions.cs" />
+    <Compile Include="Assess\GPPAssess\AssessNetworkShares.cs" />
+    <Compile Include="Assess\GPPAssess\AssessNTServices.cs" />
+    <Compile Include="Assess\GPPAssess\AssessPrinters.cs" />
+    <Compile Include="Assess\GPPAssess\AssessRegSettings.cs" />
+    <Compile Include="Assess\GPPAssess\AssessSchedTasks.cs" />
+    <Compile Include="Assess\GPPAssess\AssessShortcuts.cs" />
+    <Compile Include="Assess\GPPAssess\AssessUsersAndGroups.cs" />
+    <Compile Include="Assess\InfAssess\AssessGroupMembership.cs" />
+    <Compile Include="Assess\InfAssess\AssessKerbPolicy.cs" />
+    <Compile Include="Assess\InfAssess\AssessPrivRights.cs" />
+    <Compile Include="Assess\InfAssess\AssessRegKeys.cs" />
+    <Compile Include="Assess\InfAssess\AssessRegValues.cs" />
+    <Compile Include="Assess\InfAssess\AssessServiceGenSetting.cs" />
+    <Compile Include="Assess\InfAssess\AssessSysAccess.cs" />
+    <Compile Include="Assess\PackageAssess\PackageAssess.cs" />
+    <Compile Include="Assess\ScriptsIniAssess\AssessScriptsIni.cs" />
     <Compile Include="GrouperService.cs" />
     <Compile Include="LimitedConcurrencyLevelTaskScheduler.cs" />
+    <Compile Include="Parsers.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Utility\CurrentUserSecurity.cs" />
     <Compile Include="Utility\FileSystem.cs" />

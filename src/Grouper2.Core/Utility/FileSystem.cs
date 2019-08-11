@@ -8,7 +8,7 @@ using System.Security.Principal;
 
 namespace Grouper2.Core.Utility
 {
-    class FileSystem
+    public class FileSystem
     {
         public static List<string> FindFilePathsInString(string inString)
         {
@@ -288,13 +288,11 @@ namespace Grouper2.Core.Utility
 
         public static JObject InvestigatePath(
             string pathToInvestigate,
+            bool onlineChecks,
             Action<string> debugWrite,
             JArray interestingFileExts,
             Func<string, JObject> getFileDaclJObject,
-            Func<string, bool> doesDirExist,
-            Func<string,bool> doesFileExist,
-            Func<string, bool> canIRead,
-            Func<string,JArray> getInterestingWordsFromFile)
+            JArray interestingWords)
         {
             // general purpose method for returning some information about why a path might be interesting.
 
@@ -385,14 +383,14 @@ namespace Grouper2.Core.Utility
             if (isFilePath)
             {
                 // check if the file exists
-                fileExists = doesFileExist(inPath);
+                fileExists = DoesFileExist(inPath, onlineChecks, debugWrite);
 
                 if (fileExists)
                 {
                     // if it does, the parent Dir must exist.
                     dirExists = true;
                     // check if we can read it
-                    fileReadable = canIRead(inPath);
+                    fileReadable = CanIRead(inPath, onlineChecks, debugWrite);
                     // check if we can write it
                     fileWritable = CanIWrite(inPath, debugWrite);
                     // see what the file extension is and if it's interesting
@@ -413,7 +411,7 @@ namespace Grouper2.Core.Utility
 
                         if (fileSize < 1048576) // 1MB for now. Can tune if too slow.
                         {
-                            interestingWordsFromFile = getInterestingWordsFromFile(inPath);
+                            interestingWordsFromFile = GetInterestingWordsFromFile(inPath, onlineChecks, debugWrite, interestingWords);
                             if (interestingWordsFromFile.Count > 0)
                             {
                                 fileContentsInteresting = true;
@@ -429,11 +427,11 @@ namespace Grouper2.Core.Utility
 
             if (isDirPath)
             {
-                dirExists = doesDirExist(inPath);
+                dirExists = DoesDirExist(inPath, onlineChecks, debugWrite);
             }
             else if (!isDirPath && !fileExists)
             {
-                dirExists = doesDirExist(dirPath);
+                dirExists = DoesDirExist(dirPath, onlineChecks, debugWrite) ;
             }
 
             if (dirExists)
@@ -481,7 +479,7 @@ namespace Grouper2.Core.Utility
                     while ((dirPathParent != null) && (dirPathParent != "\\\\") && (dirPathParent != "\\"))
                     {
                         // check if the parent dir exists
-                        parentDirExists = doesDirExist(dirPathParent);
+                        parentDirExists = DoesDirExist(dirPathParent, onlineChecks, debugWrite);
                         // if it does
                         if (parentDirExists)
                         {
@@ -611,12 +609,12 @@ namespace Grouper2.Core.Utility
 
         public static JArray GetInterestingWordsFromFile(
             string inPath,
+            bool onlineChecks,
             Action<string> debugWrite,
-            Func<string, bool> doesFileExist,
             JArray interestingWords)
         {
             // validate if the file exists
-            bool fileExists = doesFileExist(inPath);
+            bool fileExists = DoesFileExist(inPath, onlineChecks, debugWrite);
             if (!fileExists)
             {
                 return null;
