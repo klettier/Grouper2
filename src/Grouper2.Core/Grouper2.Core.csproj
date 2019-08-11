@@ -47,6 +47,20 @@
     <Compile Include="GrouperService.cs" />
     <Compile Include="LimitedConcurrencyLevelTaskScheduler.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Utility\CurrentUserSecurity.cs" />
+    <Compile Include="Utility\FileSystem.cs" />
+    <Compile Include="Utility\JUtil.cs" />
+    <Compile Include="Utility\SddlParser\Ace.cs" />
+    <Compile Include="Utility\SddlParser\Acl.cs" />
+    <Compile Include="Utility\SddlParser\Format.cs" />
+    <Compile Include="Utility\SddlParser\Match.cs" />
+    <Compile Include="Utility\SddlParser\ParseSDDL.cs" />
+    <Compile Include="Utility\SddlParser\Sddl.cs" />
+    <Compile Include="Utility\SddlParser\SecurableObjectType.cs" />
+    <Compile Include="Utility\SddlParser\Sid.cs" />
+    <Compile Include="Utility\SddlParser\StringBuilderExtensions.cs" />
+    <Compile Include="Utility\Sid.cs" />
+    <Compile Include="Utility\Util.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />

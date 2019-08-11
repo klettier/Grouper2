@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.DirectoryServices.ActiveDirectory;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -184,17 +185,17 @@ namespace Grouper2.Core
         }
 
         static JObject RunCore(
-    int maxThreads,
-    Action<string> logError,
-    List<string> gpoPaths,
-    bool onlineChecks,
-    Func<JObject> getGpoPackages,
-    Func<KeyValuePair<string, JToken>, JProperty> assessPackage,
-    Func<string, JObject, JObject> processGpo,
-    bool quietMode,
-    bool noGrepScripts,
-    Func<List<string>, JObject> processScripts,
-    List<string> sysvolScriptDirs)
+            int maxThreads,
+            Action<string> logError,
+            List<string> gpoPaths,
+            bool onlineChecks,
+            Func<JObject> getGpoPackages,
+            Func<KeyValuePair<string, JToken>, JProperty> assessPackage,
+            Func<string, JObject, JObject> processGpo,
+            bool quietMode,
+            bool noGrepScripts,
+            Func<List<string>, JObject> processScripts,
+            List<string> sysvolScriptDirs)
         {
             // create a JObject to put all our output goodies in.
             JObject grouper2Output = new JObject();
@@ -237,14 +238,14 @@ namespace Grouper2.Core
                         JObject matchedPackages = new JObject();
                         if (onlineChecks)
                         {
-                                // figure out the gpo UID from the path so we can see which packages need to be processed here.
-                                string[] gpoPathArr = gpoPath.Split('{');
+                            // figure out the gpo UID from the path so we can see which packages need to be processed here.
+                            string[] gpoPathArr = gpoPath.Split('{');
                             string gpoPathBackString = gpoPathArr[1];
                             string[] gpoPathBackArr = gpoPathBackString.Split('}');
                             string gpoUid = gpoPathBackArr[0].ToString().ToLower();
 
-                                // see if we have any appropriate matching packages and construct a little bundle
-                                foreach (KeyValuePair<string, JToken> gpoPackage in gpoPackageData)
+                            // see if we have any appropriate matching packages and construct a little bundle
+                            foreach (KeyValuePair<string, JToken> gpoPackage in gpoPackageData)
                             {
                                 string packageParentGpoUid = gpoPackage.Value["ParentGPO"].ToString().ToLower().Trim('{', '}');
                                 if (packageParentGpoUid == gpoUid)
@@ -347,6 +348,214 @@ namespace Grouper2.Core
         public class Grouper2Output : IRunResult
         {
             public JObject Value { get; set; }
+        }
+
+
+        public static JObject ProcessGpo(
+            string gpoPath,
+            JObject matchedPackages,
+            bool onlineChecks,
+            Func<JObject> getDomainGpoData,
+            Action<string> debugWrite,
+            Func<string, JArray> processInf,
+            Func<string, JArray> processGpXml,
+            Func<string, JArray> processScriptsIni)
+        {
+            if (gpoPath.Contains("PolicyDefinitions"))
+            {
+                return null;
+            }
+
+            try
+            {
+                // create a dict to put the stuff we find for this GPO into.
+                JObject gpoResult = new JObject();
+                // Get the UID of the GPO from the file path.
+                string[] splitPath = gpoPath.Split(Path.DirectorySeparatorChar);
+                string gpoUid = splitPath[splitPath.Length - 1];
+
+                // Make a JObject for GPO metadata
+                JObject gpoProps = new JObject();
+                // If we're online and talking to the domain, just use that data
+                if (onlineChecks)
+                {
+                    try
+                    {
+                        // select the GPO's details from the gpo data we got
+                        if (getDomainGpoData()[gpoUid] != null)
+                        {
+                            JToken domainGpo = getDomainGpoData()[gpoUid];
+                            gpoProps = (JObject)JToken.FromObject(domainGpo);
+                            gpoProps.Add("gpoPath", gpoPath);
+                        }
+                        else
+                        {
+                            debugWrite("Couldn't get GPO Properties from the domain for the following GPO: " + gpoUid);
+                            // if we weren't able to select the GPO's details, do what we can with what we have.
+                            gpoProps = new JObject()
+                            {
+                                {"UID", gpoUid},
+                                {"gpoPath", gpoPath}
+                            };
+                        }
+                    }
+                    catch (ArgumentNullException e)
+                    {
+                        debugWrite(e.ToString());
+                    }
+                }
+                // otherwise do what we can with what we have
+                else
+                {
+                    gpoProps = new JObject()
+                    {
+                        {"UID", gpoUid},
+                        {"gpoPath", gpoPath}
+                    };
+                }
+
+                gpoResult.Add("GPOProps", gpoProps);
+                //JObject gpoResultJson = (JObject) JToken.FromObject(gpoResult);
+
+                // if I were smarter I would have done this shit with the machine and user dirs inside the Process methods instead of calling each one twice out here.
+                // @liamosaur you reckon you can see how to clean it up after the fact?
+                // Get the paths for the machine policy and user policy dirs
+                string machinePolPath = Path.Combine(gpoPath, "Machine");
+                string userPolPath = Path.Combine(gpoPath, "User");
+
+                // Process Inf and Xml Policy data for machine and user
+                JArray machinePolInfResults = processInf(machinePolPath);
+                JArray userPolInfResults = processInf(userPolPath);
+                JArray machinePolGppResults = processGpXml(machinePolPath);
+                JArray userPolGppResults = processGpXml(userPolPath);
+                JArray machinePolScriptResults = processScriptsIni(machinePolPath);
+                JArray userPolScriptResults = processScriptsIni(userPolPath);
+
+                // add all our findings to a JArray in what seems a very inefficient manner but it's the only way i could see to avoid having a JArray of JArrays of Findings.
+                JArray userFindings = new JArray();
+                JArray machineFindings = new JArray();
+
+                JArray[] allMachineGpoResults =
+                {
+                    machinePolInfResults,
+                    machinePolGppResults,
+                    machinePolScriptResults
+                };
+
+                JArray[] allUserGpoResults =
+                {
+                    userPolInfResults,
+                    userPolGppResults,
+                    userPolScriptResults
+                };
+
+                foreach (JArray machineGpoResult in allMachineGpoResults)
+                {
+                    if (machineGpoResult != null && machineGpoResult.HasValues)
+                    {
+                        foreach (JObject finding in machineGpoResult)
+                        {
+                            machineFindings.Add(finding);
+                        }
+                    }
+                }
+
+                foreach (JArray userGpoResult in allUserGpoResults)
+                {
+                    if (userGpoResult != null && userGpoResult.HasValues)
+                    {
+                        foreach (JObject finding in userGpoResult)
+                        {
+                            userFindings.Add(finding);
+                        }
+                    }
+                }
+
+                JObject allFindings = new JObject();
+
+                // if there are any Findings, add it to the final output.
+                if (userFindings.HasValues)
+                {
+                    JProperty userFindingsJProp = new JProperty("User Policy", userFindings);
+                    allFindings.Add(userFindingsJProp);
+                }
+                if (machineFindings.HasValues)
+                {
+                    JProperty machineFindingsJProp = new JProperty("Machine Policy", machineFindings);
+                    allFindings.Add(machineFindingsJProp);
+                }
+                if (matchedPackages.HasValues)
+                {
+                    JProperty packageFindingsJProp = new JProperty("Packages", matchedPackages);
+                    allFindings.Add(packageFindingsJProp);
+                }
+                if (allFindings.HasValues)
+                {
+                    gpoResult.Add("Findings", allFindings);
+                    return gpoResult;
+                }
+            }
+            catch (UnauthorizedAccessException e)
+            {
+                debugWrite(e.ToString());
+            }
+
+            return null;
+        }
+
+        private static JObject ProcessScripts(
+            Action<string> debugWrite,
+            List<string> scriptDirs,
+            Func<string, JObject> investigateFileContents,
+            int intLevelToShow)
+        {
+            // output object
+            JObject processedScripts = new JObject();
+
+            foreach (string scriptDir in scriptDirs)
+            {
+                try
+                {
+                    // get all the files in this dir
+                    string[] scriptDirFiles = Directory.GetFiles(scriptDir, "*", SearchOption.AllDirectories);
+                    // add them all to the master list of files
+                    foreach (string scriptDirFile in scriptDirFiles)
+                    {
+                        // get the file info so we can check size
+                        FileInfo scriptFileInfo = new FileInfo(scriptDirFile);
+                        // if it's not too big
+                        if (scriptFileInfo.Length < 200000)
+                        {
+                            // feed the whole thing through Utility.InvestigateFileContents
+                            JObject investigatedScript = investigateFileContents(scriptDirFile);
+                            // if we got anything good, add the result to processedScripts
+                            if (investigatedScript != null)
+                            {
+                                if (((int)investigatedScript["InterestLevel"]) >= intLevelToShow)
+                                {
+                                    processedScripts.Add(
+                                        new JProperty(scriptDirFile, investigatedScript)
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (Exception e)
+                {
+                    debugWrite(e.ToString());
+                }
+            }
+
+
+            if (processedScripts.HasValues)
+            {
+                return processedScripts;
+            }
+            else
+            {
+                return null;
+            }
         }
     }
 }
