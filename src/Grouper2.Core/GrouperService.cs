@@ -1,11 +1,15 @@
 ﻿using Newtonsoft.Json.Linq;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.DirectoryServices.ActiveDirectory;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
+
+[assembly: InternalsVisibleTo("Grouper2.Core.Tests")]
 
 namespace Grouper2.Core
 {
@@ -180,11 +184,23 @@ namespace Grouper2.Core
 
             return new Grouper2Output
             {
-                Value = RunCore(executionContext.MaxThreads, logError, gpoPaths, executionContext.OnlineChecks, getGpoPackages, assessPackage, processGpo, executionContext.QuietMode, executionContext.NoGrepScripts, processScripts, sysvolScriptDirs)
+                Value = RunCore(
+                    executionContext.MaxThreads,
+                    logError,
+                    gpoPaths,
+                    executionContext.OnlineChecks,
+                    getGpoPackages,
+                    assessPackage,
+                    processGpo,
+                    executionContext.QuietMode,
+                    executionContext.NoGrepScripts,
+                    sysvolScriptDirs,
+                    processScripts)
             };
         }
 
-        static JObject RunCore(
+
+        internal static JObject RunCore(
             int maxThreads,
             Action<string> logError,
             List<string> gpoPaths,
@@ -194,8 +210,8 @@ namespace Grouper2.Core
             Func<string, JObject, JObject> processGpo,
             bool quietMode,
             bool noGrepScripts,
-            Func<List<string>, JObject> processScripts,
-            List<string> sysvolScriptDirs)
+            List<string> sysvolScriptDirs,
+            Func<List<string>, JObject> processScripts)
         {
             // create a JObject to put all our output goodies in.
             JObject grouper2Output = new JObject();
@@ -208,8 +224,8 @@ namespace Grouper2.Core
             TaskFactory gpoFactory = new TaskFactory(lcts);
             CancellationTokenSource gpocts = new CancellationTokenSource();
 
-            logError("\n" + gpoPaths.Count.ToString() + " GPOs to process.");
-            logError("\nStarting processing GPOs with " + maxThreads.ToString() + " threads.");
+            logError?.Invoke("\n" + gpoPaths.Count.ToString() + " GPOs to process.");
+            logError?.Invoke("\nStarting processing GPOs with " + maxThreads.ToString() + " threads.");
 
 
             JObject taskErrors = new JObject();
@@ -310,10 +326,10 @@ namespace Grouper2.Core
                 {
                     logError?.Invoke("");
 
-                    Console.Error.Write("\r" + completeTaskCount.ToString() + "/" + totalGpoTasksCount.ToString() + " GPOs processed. " + percentageString + "% complete. ");
+                    logError?.Invoke("\r" + completeTaskCount.ToString() + "/" + totalGpoTasksCount.ToString() + " GPOs processed. " + percentageString + "% complete. ");
                     if (faultedTaskCount > 0)
                     {
-                        Console.Error.Write(faultedTaskCount.ToString() + " GPOs failed to process.");
+                        logError?.Invoke(faultedTaskCount.ToString() + " GPOs failed to process.");
                     }
                 }
 
@@ -327,7 +343,7 @@ namespace Grouper2.Core
             // do the script grepping
             if (!noGrepScripts)
             {
-                Console.Error.Write("\n\nProcessing SYSVOL script dirs.\n\n");
+                logError("\n\nProcessing SYSVOL script dirs.\n\n");
                 JObject processedScriptDirs = processScripts(sysvolScriptDirs);
                 if ((processedScriptDirs != null) && (processedScriptDirs.HasValues))
                 {
@@ -350,6 +366,200 @@ namespace Grouper2.Core
             public JObject Value { get; set; }
         }
 
+        internal JObject RunCore2(
+            int maxThreads,
+            Action<string> logError,
+            List<string> gpoPaths,
+            bool onlineChecks,
+            Func<JObject> getGpoPackages,
+            Func<KeyValuePair<string, JToken>, JProperty> assessPackage,
+            Func<string, JObject, JObject> processGpo,
+            bool quietMode,
+            bool noGrepScripts,
+            List<string> sysvolScriptDirs,
+            Func<List<string>, JObject> processScripts)
+        {
+            // create a JObject to put all our output goodies in.
+            JObject grouper2Output = new JObject();
+            // so for each uid directory (including ones with that dumb broken domain replication condition)
+            // we're going to gather up all our goodies and put them into that dict we just created.
+            // Create a TaskScheduler
+            //LimitedConcurrencyLevelTaskScheduler lcts = new LimitedConcurrencyLevelTaskScheduler(maxThreads);
+
+            // create a TaskFactory
+            //TaskFactory gpoFactory = new TaskFactory(lcts);
+            CancellationTokenSource gpocts = new CancellationTokenSource();
+
+            logError?.Invoke("\n" + gpoPaths.Count.ToString() + " GPOs to process.");
+            logError?.Invoke("\nStarting processing GPOs with " + maxThreads.ToString() + " threads.");
+
+
+            //JObject taskErrors = new JObject();
+            //List<Task> gpoTasks = new List<Task>();
+
+            //JObject gpoPackageData = new JObject();
+
+            // Grab Packages from LDAP
+            //if (onlineChecks)
+            //{
+            //    gpoPackageData = getGpoPackages();
+            //}
+
+            var properties = new ConcurrentBag<(string propertyName, JToken value)>();
+            var threadSafeGetGpoPackages = new Lazy<JObject>(getGpoPackages, true);
+
+            // Create a task for each GPO
+            (Task[] gpoTasks, (string gpoPath, string error)[] taskErrors) =
+                RR(maxThreads, s => P(onlineChecks, s, threadSafeGetGpoPackages), gpoPaths, properties, gpocts.Token);
+
+            // put 'em all in a happy little array
+            //Task[] gpoTaskArray = gpoTasks.ToArray();
+
+            // create a little counter to provide status updates
+            int totalGpoTasksCount = gpoTasks.Length;
+            int incompleteTaskCount = gpoTasks.Length;
+            int remainingTaskCount = gpoTasks.Length;
+
+            while (remainingTaskCount > 0)
+            {
+                Task[] incompleteTasks = Array.FindAll(gpoTasks, element => element.Status != TaskStatus.RanToCompletion);
+                incompleteTaskCount = incompleteTasks.Length;
+                Task[] faultedTasks = Array.FindAll(gpoTasks, element => element.Status == TaskStatus.Faulted);
+                int faultedTaskCount = faultedTasks.Length;
+                int completeTaskCount = totalGpoTasksCount - incompleteTaskCount - faultedTaskCount;
+                int percentage = (int)Math.Round((double)(100 * completeTaskCount) / totalGpoTasksCount);
+                string percentageString = percentage.ToString();
+                if (quietMode != true)
+                {
+                    logError?.Invoke("");
+
+                    logError?.Invoke("\r" + completeTaskCount.ToString() + "/" + totalGpoTasksCount.ToString() + " GPOs processed. " + percentageString + "% complete. ");
+                    if (faultedTaskCount > 0)
+                    {
+                        logError?.Invoke(faultedTaskCount.ToString() + " GPOs failed to process.");
+                    }
+                }
+
+                remainingTaskCount = incompleteTaskCount - faultedTaskCount;
+            }
+
+            // make double sure tasks all finished
+            Task.WaitAll(gpoTasks);
+            gpocts.Dispose();
+
+            // do the script grepping
+            if (!noGrepScripts)
+            {
+                logError("\n\nProcessing SYSVOL script dirs.\n\n");
+                JObject processedScriptDirs = processScripts(sysvolScriptDirs);
+                if ((processedScriptDirs != null) && (processedScriptDirs.HasValues))
+                {
+                    grouper2Output.Add("Scripts", processedScriptDirs);
+                }
+            }
+
+            logError?.Invoke("Errors in processing GPOs:");
+
+            if (taskErrors.Any())
+            {
+                var jObj = new JObject();
+                foreach ((string gpoPath, string error) in taskErrors)
+                {
+                    jObj.Add(gpoPath, error);
+                }
+                logError?.Invoke(jObj.ToString());
+            }
+
+            return grouper2Output;
+        }
+
+        (Task[] gpoTasks, (string gpoPath, string error)[] taskErrors) RR(
+            int maxThreads,
+            Func<string, IEnumerable<(string propertyName, JToken value)>> f,
+            List<string> gpoPaths,
+            ConcurrentBag<(string propertyName, JToken value)> properties,
+            CancellationToken token)
+        {
+            List<(string gpoPath, string error)> taskErrors = new List<(string gpoPath, string error)>();
+            List<Task> gpoTasks = new List<Task>();
+            LimitedConcurrencyLevelTaskScheduler lcts = new LimitedConcurrencyLevelTaskScheduler(maxThreads);
+            TaskFactory gpoFactory = new TaskFactory(lcts);
+
+            // Create a task for each GPO
+            foreach (string gpoPath in gpoPaths)
+            {
+                // skip PolicyDefinitions directory
+                if (gpoPath.Contains("PolicyDefinitions"))
+                {
+                    continue;
+                }
+
+                Task t = gpoFactory.StartNew(() =>
+                {
+                    try
+                    {
+                        foreach (var item in f(gpoPath))
+                        {
+                            properties.Add(item);
+                        }
+                    }
+
+                    catch (Exception e)
+                    {
+                        taskErrors.Add((gpoPath, e.ToString()));
+                    }
+                }, token);
+
+                gpoTasks.Add(t);
+            }
+
+            return (gpoTasks.ToArray(), taskErrors.ToArray());
+        }
+
+        IEnumerable<(string propertyName, JToken value)> P(bool onlineChecks, string gpoPath, Lazy<JObject> getGpoPackageData)
+        {
+            JObject matchedPackages = new JObject();
+
+            if (onlineChecks)
+            {
+                // figure out the gpo UID from the path so we can see which packages need to be processed here.
+                string[] gpoPathArr = gpoPath.Split('{');
+                string gpoPathBackString = gpoPathArr[1];
+                string[] gpoPathBackArr = gpoPathBackString.Split('}');
+                string gpoUid = gpoPathBackArr[0].ToString().ToLower();
+
+                // see if we have any appropriate matching packages and construct a little bundle
+                foreach (KeyValuePair<string, JToken> gpoPackage in getGpoPackageData.Value)
+                {
+                    string packageParentGpoUid = gpoPackage.Value["ParentGPO"].ToString().ToLower().Trim('{', '}');
+                    if (packageParentGpoUid == gpoUid)
+                    {
+                        JProperty assessedPackage = assessPackage(gpoPackage);
+                        if (assessedPackage != null)
+                        {
+                            matchedPackages.Add(assessedPackage);
+                        }
+                    }
+                }
+            }
+
+            JObject gpoFindings = processGpo(gpoPath, matchedPackages);
+
+            if (gpoFindings != null)
+            {
+                if (gpoFindings.HasValues)
+                {
+                    if (!(gpoPath.Contains("NTFRS")))
+                    {
+                        yield return ("Current Policy - " + gpoPath, gpoFindings);
+                    }
+                    else
+                    {
+                        yield return (gpoPath, gpoFindings);
+                    }
+                }
+            }
+        }
 
         public static JObject ProcessGpo(
             string gpoPath,
@@ -524,19 +734,18 @@ namespace Grouper2.Core
                         // get the file info so we can check size
                         FileInfo scriptFileInfo = new FileInfo(scriptDirFile);
                         // if it's not too big
-                        if (scriptFileInfo.Length < 200000)
+                        if (scriptFileInfo.Length >= 200000)
                         {
-                            // feed the whole thing through Utility.InvestigateFileContents
-                            JObject investigatedScript = investigateFileContents(scriptDirFile);
-                            // if we got anything good, add the result to processedScripts
-                            if (investigatedScript != null)
+                            continue;
+                        }
+                        // feed the whole thing through Utility.InvestigateFileContents
+                        JObject investigatedScript = investigateFileContents(scriptDirFile);
+                        // if we got anything good, add the result to processedScripts
+                        if (investigatedScript != null)
+                        {
+                            if (((int)investigatedScript["InterestLevel"]) >= intLevelToShow)
                             {
-                                if (((int)investigatedScript["InterestLevel"]) >= intLevelToShow)
-                                {
-                                    processedScripts.Add(
-                                        new JProperty(scriptDirFile, investigatedScript)
-                                    );
-                                }
+                                processedScripts.Add(new JProperty(scriptDirFile, investigatedScript));
                             }
                         }
                     }
@@ -547,15 +756,12 @@ namespace Grouper2.Core
                 }
             }
 
-
-            if (processedScripts.HasValues)
-            {
-                return processedScripts;
-            }
-            else
+            if (!processedScripts.HasValues)
             {
                 return null;
             }
+
+            return processedScripts;
         }
     }
 }

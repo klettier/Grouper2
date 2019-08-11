@@ -186,19 +186,6 @@ namespace Grouper2
                 logError?.Invoke("If you find yourself thinking 'wtf this is very ugly and hard to read', consider trying the -g argument.");
             }
 
-            //if (GlobalVar.CleanupList != null)
-            //{
-            //    List<string> cleanupList = Util.DedupeList(GlobalVar.CleanupList);
-            //    if (cleanupList.Count >= 1)
-            //    {
-            //        Console.WriteLine("\n\nGrouper2 tried to create these files. It probably failed, but just in case it didn't, you might want to check and clean them up.\n");
-            //        foreach (string path in cleanupList)
-            //        {
-            //            Console.WriteLine(path);
-            //        }
-            //    }
-            //}
-
         }
 
         private static void MainOld(string[] args)
